@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LibreTV 点播源一键复制助手</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Google Fonts Inter 字体 -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #0b1120; /* 深邃暗蓝背景，契合 LibreTV 视觉 */
+            color: #e2e8f0;
+        }
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+        /* Toast 动画 */
+        @keyframes slideUp {
+            from { transform: translate(-50%, 100%); opacity: 0; }
+            to { transform: translate(-50%, 0); opacity: 1; }
+        }
+        .toast-enter {
+            animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-sky-500 selection:text-white">
+
+    <!-- 顶部导航与操作栏 -->
+    <header class="sticky top-0 z-30 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 shadow-lg">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 py-4">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <!-- 标题与状态统计 -->
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shadow-md shadow-sky-500/20 shrink-0">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-lg sm:text-xl font-bold text-white tracking-tight flex items-center gap-2">
+                            LibreTV 点播源助手
+                            <span id="addedCounterBadge" class="text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                已添加 0 / 16
+                            </span>
+                        </h1>
+                        <p class="text-xs text-slate-400 mt-0.5">点击按钮直接复制纯净文本，自动过滤多余括号与空格</p>
+                    </div>
+                </div>
+
+                <!-- 批量导出与重置操作 -->
+                <div class="flex items-center gap-2.5 self-start md:self-auto">
+                    <button id="resetAddedBtn" onclick="resetAddedStatus()" class="px-3 py-2 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition active:scale-95 flex items-center gap-1.5" title="清空所有已添加勾选标记">
+                        <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        重置标记
+                    </button>
+                    <button id="copyAllJsonBtn" onclick="copyAllJson()" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-600/20 transition active:scale-95 flex items-center gap-1.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                        <span>一键复制全部 JSON 配置</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 搜索与分类筛选栏 -->
+            <div class="mt-4 flex flex-col sm:flex-row gap-3 justify-between items-stretch sm:items-center">
+                <!-- 优先级筛选标签 -->
+                <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 no-scrollbar" id="filterTabs">
+                    <button data-filter="全部" class="filter-btn active px-3.5 py-1.5 rounded-lg text-xs font-medium bg-sky-500 text-white shadow-sm transition whitespace-nowrap">
+                        全部 (16)
+                    </button>
+                    <button data-filter="主力首选" class="filter-btn px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800/80 text-slate-300 hover:bg-slate-800 border border-slate-700/70 transition whitespace-nowrap">
+                        ⭐ 主力首选 (3)
+                    </button>
+                    <button data-filter="常用推荐" class="filter-btn px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800/80 text-slate-300 hover:bg-slate-800 border border-slate-700/70 transition whitespace-nowrap">
+                        👍 常用推荐 (5)
+                    </button>
+                    <button data-filter="补充备用" class="filter-btn px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800/80 text-slate-300 hover:bg-slate-800 border border-slate-700/70 transition whitespace-nowrap">
+                        📦 补充备用 (8)
+                    </button>
+                </div>
+
+                <!-- 搜索框 -->
+                <div class="relative w-full sm:w-64">
+                    <svg class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                    <input type="text" id="searchInput" placeholder="搜索名称、特色或域名..." class="w-full pl-9 pr-8 py-1.5 bg-slate-800/90 border border-slate-700 rounded-xl text-xs sm:text-sm text-slate-200 placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition">
+                    <button id="clearSearchBtn" onclick="clearSearch()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区域：点播源卡片网格 -->
+    <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6">
+        <div id="sourcesGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <!-- 卡片由 JS 动态渲染 -->
+        </div>
+
+        <!-- 无搜索结果提示 -->
+        <div id="emptyState" class="hidden flex-col items-center justify-center py-16 text-center">
+            <div class="w-14 h-14 rounded-2xl bg-slate-800/80 flex items-center justify-center mb-3 text-slate-400">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+            </div>
+            <p class="text-slate-300 font-medium">没有找到匹配的点播源</p>
+            <p class="text-xs text-slate-500 mt-1">尝试更换搜索关键词或切换筛选标签</p>
+        </div>
+    </main>
+
+    <!-- 底部提示 -->
+    <footer class="border-t border-slate-800/80 py-4 text-center text-xs text-slate-500">
+        使用小贴士：在 LibreTV 中先添加 3~5 个主力源即可，勾选「已添加」可自动记录进度（本地保存）
+    </footer>
+
+    <!-- 全局轻提示 Toast -->
+    <div id="toastContainer" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex flex-col items-center gap-2 w-11/12 max-w-md"></div>
+
+    <!-- 隐藏的辅助复制文本框（确保 iFrame 环境下 100% 兼容复制） -->
+    <textarea id="clipboardHelper" class="fixed -top-96 -left-96 opacity-0 pointer-events-none" readonly></textarea>
+
+    <script>
+        // 16个标准苹果CMS点播源数据
+        const VOD_SOURCES = [
+            { id: 1, name: "量子资源", api: "https://cj.lziapi.com/api.php/provide/vod/", desc: "资源极全、更新快、连接稳定", priority: "主力首选" },
+            { id: 2, name: "非凡资源", api: "https://cj.ffzyapi.com/api.php/provide/vod/", desc: "主流大站，院线及热播剧更新及时", priority: "主力首选" },
+            { id: 3, name: "暴风资源", api: "https://bfzyapi.com/api.php/provide/vod/", desc: "播放流畅，高清片源较多", priority: "主力首选" },
+            { id: 4, name: "索尼资源", api: "https://suoniapi.com/api.php/provide/vod/", desc: "综合画质较好，涵盖国内外剧集与动漫", priority: "常用推荐" },
+            { id: 5, name: "红牛资源", api: "https://www.hongniuzy2.com/api.php/provide/vod/", desc: "老牌采集站，备用线路稳定", priority: "常用推荐" },
+            { id: 6, name: "卧龙资源", api: "https://collect.wolongzyw.com/api.php/provide/vod/", desc: "剧集覆盖面广，适合作为补充源", priority: "常用推荐" },
+            { id: 7, name: "豪华资源", api: "https://hhzyapi.com/api.php/provide/vod/", desc: "综合影视点播源，解析速度较快", priority: "常用推荐" },
+            { id: 8, name: "黑木耳资源", api: "https://www.heimuer.tv/api.php/provide/vod/", desc: "画面清晰度高，冷门影视命中率不错", priority: "常用推荐" },
+            { id: 9, name: "极速资源", api: "https://jszyapi.com/api.php/provide/vod/", desc: "动漫、短剧收录较多，连接响应快", priority: "补充备用" },
+            { id: 10, name: "光速资源", api: "https://api.guangsuapi.com/api.php/provide/vod/", desc: "除常规影视外，收录较多足球等体育赛事", priority: "补充备用" },
+            { id: 11, name: "无尽资源", api: "https://api.wujinapi.com/api.php/provide/vod/", desc: "综合影视与体育赛事齐全", priority: "补充备用" },
+            { id: 12, name: "百度云资源", api: "https://api.apibdzy.com/api.php/provide/vod/", desc: "综艺、热播剧条目多且简介完整", priority: "补充备用" },
+            { id: 13, name: "快车资源", api: "https://caiji.kczyapi.com/api.php/provide/vod/", desc: "老牌综合采集站，适合冷门片补漏", priority: "补充备用" },
+            { id: 14, name: "新浪资源", api: "https://api.xinlangapi.com/xinlangapi.php/provide/vod/", desc: "综合片库补充源，稳定性尚可", priority: "补充备用" },
+            { id: 15, name: "樱花资源", api: "https://m3u8.apiyhzy.com/api.php/provide/vod/", desc: "偏重日漫、番剧及二次元内容", priority: "补充备用" },
+            { id: 16, name: "淘片资源", api: "https://taopianapi.com/cjapi/mc10/vod/json.html", desc: "综合影视补充源，适合备用", priority: "补充备用" }
+        ];
+
+        // 状态管理
+        const STORAGE_KEY = 'libretv_added_vod_sources_v1';
+        let addedIds = new Set();
+        let currentFilter = '全部';
+        let searchQuery = '';
+
+        // 初始化读取 localStorage
+        function loadAddedState() {
+            try {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    if (Array.isArray(parsed)) {
+                        addedIds = new Set(parsed);
+                    }
+                }
+            } catch (e) {
+                console.warn('读取本地存储失败:', e);
+            }
+            updateCounterBadge();
+        }
+
+        // 保存状态到 localStorage
+        function saveAddedState() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify([...addedIds]));
+            } catch (e) {
+                console.warn('保存本地存储失败:', e);
+            }
+            updateCounterBadge();
+        }
+
+        // 更新顶部已添加计数徽章
+        function updateCounterBadge() {
+            const badge = document.getElementById('addedCounterBadge');
+            badge.textContent = `已添加 ${addedIds.size} / ${VOD_SOURCES.length}`;
+        }
+
+        // 切换单个源的“已添加”标记
+        function toggleAdded(id) {
+            if (addedIds.has(id)) {
+                addedIds.delete(id);
+            } else {
+                addedIds.add(id);
+                const item = VOD_SOURCES.find(s => s.id === id);
+                if (item) {
+                    showToast(`已标记「${item.name}」为已添加`, 'info');
+                }
+            }
+            saveAddedState();
+            renderCards();
+        }
+
+        // 重置所有已添加标记
+        function resetAddedStatus() {
+            if (addedIds.size === 0) {
+                showToast('当前没有任何已添加标记', 'info');
+                return;
+            }
+            addedIds.clear();
+            saveAddedState();
+            renderCards();
+            showToast('已清空所有「已添加」标记', 'info');
+        }
+
+        // 兼容性极强的纯文本复制函数（优先 execCommand 以规避 iFrame 权限限制）
+        function copyPlainText(text) {
+            const cleanText = String(text).trim();
+            const helper = document.getElementById('clipboardHelper');
+            helper.value = cleanText;
+            helper.select();
+            helper.setSelectionRange(0, 99999);
+
+            let success = false;
+            try {
+                success = document.execCommand('copy');
+            } catch (err) {
+                success = false;
+            }
+
+            if (!success && navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(cleanText).catch(() => {});
+                success = true;
+            }
+            return cleanText;
+        }
+
+        // 处理按钮点击复制，并触发按钮变绿及 Toast 提示
+        function handleCopy(btnElement, textToCopy, labelType) {
+            const copied = copyPlainText(textToCopy);
+
+            // 保存原始按钮 HTML 与样式类
+            if (!btnElement.dataset.origHtml) {
+                btnElement.dataset.origHtml = btnElement.innerHTML;
+                btnElement.dataset.origClass = btnElement.className;
+            }
+
+            // 清除之前的定时器（防止连续快速点击闪烁）
+            if (btnElement._resetTimer) {
+                clearTimeout(btnElement._resetTimer);
+            }
+
+            // 切换为绿色“已复制 ✓”状态
+            btnElement.className = "px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white border border-emerald-500 shadow-sm shadow-emerald-600/20 transition-all flex items-center justify-center gap-1.5 shrink-0";
+            btnElement.innerHTML = `
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path>
+                </svg>
+                <span>已复制 ✓</span>
+            `;
+
+            // 弹出轻提示 Toast 显示具体复制内容
+            showToast(`已复制${labelType}：${copied}`, 'success');
+
+            // 1.5秒后恢复原状
+            btnElement._resetTimer = setTimeout(() => {
+                btnElement.className = btnElement.dataset.origClass;
+                btnElement.innerHTML = btnElement.dataset.origHtml;
+            }, 1500);
+        }
+
+        // 一键复制全部 JSON 配置
+        function copyAllJson() {
+            const jsonPayload = VOD_SOURCES.map(s => ({
+                name: s.name,
+                api: s.api
+            }));
+            const jsonStr = JSON.stringify(jsonPayload, null, 2);
+            copyPlainText(jsonStr);
+
+            const btn = document.getElementById('copyAllJsonBtn');
+            const origHtml = btn.innerHTML;
+            const origClass = btn.className;
+
+            btn.className = "px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-emerald-600 text-white shadow-md shadow-emerald-600/20 transition flex items-center gap-1.5";
+            btn.innerHTML = `
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path>
+                </svg>
+                <span>已复制全部 JSON ✓</span>
+            `;
+
+            showToast(`已复制全部 ${VOD_SOURCES.length} 个点播源的 JSON 配置！`, 'success');
+
+            setTimeout(() => {
+                btn.className = origClass;
+                btn.innerHTML = origHtml;
+            }, 1500);
+        }
+
+        // 轻提示 Toast 弹窗
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            // 最多同时保留2条提示，避免堆叠过高
+            while (container.children.length >= 2) {
+                container.removeChild(container.firstChild);
+            }
+
+            const toast = document.createElement('div');
+            const iconColor = type === 'success' ? 'text-emerald-400' : 'text-sky-400';
+            const borderColor = type === 'success' ? 'border-emerald-500/40' : 'border-sky-500/40';
+
+            toast.className = `toast-enter w-full bg-slate-900/95 backdrop-blur-md text-slate-100 px-4 py-3 rounded-xl shadow-2xl border ${borderColor} flex items-center gap-2.5 text-xs sm:text-sm`;
+            toast.innerHTML = `
+                <svg class="w-5 h-5 ${iconColor} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span class="truncate font-medium">${escapeHtml(message)}</span>
+            `;
+
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(10px)';
+                toast.style.transition = 'all 0.25s ease';
+                setTimeout(() => toast.remove(), 250);
+            }, 2200);
+        }
+
+        // 获取优先级徽章样式
+        function getPriorityBadge(priority) {
+            switch (priority) {
+                case '主力首选':
+                    return `<span class="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">⭐ 主力首选</span>`;
+                case '常用推荐':
+                    return `<span class="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30">👍 常用推荐</span>`;
+                default:
+                    return `<span class="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-700/70 text-slate-300 border border-slate-600/50">📦 补充备用</span>`;
+            }
+        }
+
+        // 防 XSS 转义
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // 渲染卡片列表
+        function renderCards() {
+            const grid = document.getElementById('sourcesGrid');
+            const emptyState = document.getElementById('emptyState');
+
+            const filtered = VOD_SOURCES.filter(item => {
+                const matchFilter = currentFilter === '全部' || item.priority === currentFilter;
+                const q = searchQuery.toLowerCase();
+                const matchSearch = !q ||
+                    item.name.toLowerCase().includes(q) ||
+                    item.desc.toLowerCase().includes(q) ||
+                    item.api.toLowerCase().includes(q);
+                return matchFilter && matchSearch;
+            });
+
+            if (filtered.length === 0) {
+                grid.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                emptyState.classList.add('flex');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            emptyState.classList.remove('flex');
+
+            grid.innerHTML = filtered.map(item => {
+                const isAdded = addedIds.has(item.id);
+                const cardBg = isAdded
+                    ? 'bg-slate-900/50 border-emerald-500/40'
+                    : 'bg-slate-900/90 border-slate-800 hover:border-slate-700';
+
+                return `
+                <div class="rounded-2xl border ${cardBg} p-4 sm:p-5 transition-all shadow-sm flex flex-col justify-between gap-3.5 relative group">
+                    <!-- 上半部分：名称、优先级标签、已添加复选框 -->
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="space-y-1">
+                            <div class="flex items-center flex-wrap gap-2">
+                                <span class="text-xs font-mono text-slate-500">#${String(item.id).padStart(2, '0')}</span>
+                                <h2 class="text-base sm:text-lg font-bold ${isAdded ? 'text-slate-300' : 'text-white'}">${escapeHtml(item.name)}</h2>
+                                ${getPriorityBadge(item.priority)}
+                            </div>
+                            <p class="text-xs sm:text-sm text-slate-400">${escapeHtml(item.desc)}</p>
+                        </div>
+
+                        <!-- 已添加标记按钮/复选框 -->
+                        <label class="cursor-pointer select-none flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition shrink-0 ${
+                            isAdded
+                                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                                : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                        }">
+                            <input type="checkbox" class="sr-only" ${isAdded ? 'checked' : ''} onchange="toggleAdded(${item.id})">
+                            <span class="w-4 h-4 rounded flex items-center justify-center border ${
+                                isAdded ? 'bg-emerald-500 border-emerald-500 text-slate-950' : 'border-slate-500 bg-slate-900'
+                            }">
+                                ${isAdded ? '<svg class="w-3 h-3 stroke-[3]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>' : ''}
+                            </span>
+                            <span>${isAdded ? '已添加' : '标记已加'}</span>
+                        </label>
+                    </div>
+
+                    <!-- 中间：纯 API 地址展示框 -->
+                    <div class="bg-slate-950/90 border border-slate-800/90 rounded-xl px-3 py-2 flex items-center justify-between gap-2">
+                        <code class="text-xs sm:text-[13px] font-mono text-sky-400 truncate select-all">${escapeHtml(item.api)}</code>
+                    </div>
+
+                    <!-- 底部：两个独立醒目的一键复制按钮 -->
+                    <div class="grid grid-cols-2 gap-2.5 pt-0.5">
+                        <button
+                            type="button"
+                            onclick="handleCopy(this, '${escapeHtml(item.name)}', '名称')"
+                            class="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                        >
+                            <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                            </svg>
+                            <span>复制名称</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onclick="handleCopy(this, '${escapeHtml(item.api)}', '地址')"
+                            class="px-3 py-2 rounded-xl text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white border border-sky-500/80 shadow-sm shadow-sky-600/20 transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                        >
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path>
+                            </svg>
+                            <span>复制地址</span>
+                        </button>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        // 绑定筛选标签事件
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.filter-btn').forEach(b => {
+                    b.className = "filter-btn px-3.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800/80 text-slate-300 hover:bg-slate-800 border border-slate-700/70 transition whitespace-nowrap";
+                });
+                btn.className = "filter-btn active px-3.5 py-1.5 rounded-lg text-xs font-medium bg-sky-500 text-white shadow-sm transition whitespace-nowrap";
+                currentFilter = btn.dataset.filter;
+                renderCards();
+            });
+        });
+
+        // 绑定搜索框事件
+        const searchInput = document.getElementById('searchInput');
+        const clearSearchBtn = document.getElementById('clearSearchBtn');
+
+        searchInput.addEventListener('input', (e) => {
+            searchQuery = e.target.value.trim();
+            if (searchQuery) {
+                clearSearchBtn.classList.remove('hidden');
+            } else {
+                clearSearchBtn.classList.add('hidden');
+            }
+            renderCards();
+        });
+
+        function clearSearch() {
+            searchInput.value = '';
+            searchQuery = '';
+            clearSearchBtn.classList.add('hidden');
+            renderCards();
+        }
+
+        // 启动初始化
+        window.addEventListener('DOMContentLoaded', () => {
+            loadAddedState();
+            renderCards();
+        });
+    </script>
+</body>
+</html>
